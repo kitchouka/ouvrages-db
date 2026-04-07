@@ -8,6 +8,11 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS parametres (
+    key TEXT PRIMARY KEY,
+    value REAL NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS ouvrages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     code TEXT,
@@ -33,5 +38,13 @@ db.exec(`
     imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+// Seed paramètres par défaut si vide
+const countParams = db.prepare('SELECT COUNT(*) as c FROM parametres').get();
+if (countParams.c === 0) {
+  db.prepare("INSERT INTO parametres (key, value) VALUES ('taux_horaire', 45)").run();
+  db.prepare("INSERT INTO parametres (key, value) VALUES ('coef_fg', 1.36)").run();
+  db.prepare("INSERT INTO parametres (key, value) VALUES ('marge_mat', 0.30)").run();
+}
 
 module.exports = db;

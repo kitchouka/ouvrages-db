@@ -53,6 +53,7 @@
       <button class="tab-btn active" data-tab="bibliotheque">📚 Bibliothèque</button>
       <button class="tab-btn" data-tab="import">📥 Import</button>
       <button class="tab-btn" data-tab="stats">📊 Stats</button>
+      <button class="tab-btn" data-tab="parametres">⚙️ Paramètres</button>
     </div>
 
     <!-- Tab: Bibliothèque -->
@@ -98,7 +99,8 @@
               <th class="px-4 py-3 text-center">Unité</th>
               <th class="px-4 py-3 text-right">MO (h/u)</th>
               <th class="px-4 py-3 text-right">Mat. (€/u)</th>
-              <th class="px-4 py-3 text-right">PV (€/u)</th>
+              <th class="px-4 py-3 text-right">PV devis (€/u)</th>
+              <th class="px-4 py-3 text-right">PV calculé (€/u)</th>
               <th class="px-4 py-3 text-center">Occur.</th>
               <th class="px-4 py-3 text-center">Actions</th>
             </tr>
@@ -178,6 +180,53 @@
             <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">Aucun import</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Tab: Paramètres -->
+    <div id="tab-parametres" class="tab-content hidden">
+      <div class="max-w-lg">
+        <h2 class="text-lg font-semibold text-white mb-1">Paramètres de calcul</h2>
+        <p class="text-sm text-gray-400 mb-6">Ces valeurs servent à calculer le prix de vente indicatif de chaque ouvrage.</p>
+
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-6">
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Taux horaire MO (€/h)</label>
+            <p class="text-xs text-gray-500 mb-2">Coût de la main d'œuvre hors frais généraux</p>
+            <input type="number" id="param-taux-horaire" step="0.5" min="0"
+              class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Coefficient frais généraux (ex: 1.36)</label>
+            <p class="text-xs text-gray-500 mb-2">Appliqué sur la MO : MO_vendue = ratio_mo × taux_horaire × coef_FG</p>
+            <input type="number" id="param-coef-fg" step="0.01" min="1"
+              class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Marge sur fournitures (ex: 0.30 = 30%)</label>
+            <p class="text-xs text-gray-500 mb-2">Appliquée sur l'achat matériaux : mat_vendu = cout_mat × (1 + marge)</p>
+            <input type="number" id="param-marge-mat" step="0.01" min="0" max="2"
+              class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500" />
+          </div>
+
+          <!-- Formule résumée -->
+          <div class="bg-gray-800/50 rounded-lg p-4 text-xs text-gray-400 font-mono">
+            Prix de vente = (MO × taux × coef_FG) + (matériaux × (1 + marge))
+          </div>
+
+          <button onclick="saveParametres()"
+            class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-colors">
+            💾 Enregistrer les paramètres
+          </button>
+
+          <div id="param-success" class="hidden text-center text-green-400 text-sm">✅ Paramètres enregistrés</div>
+        </div>
+
+        <!-- Aperçu calcul -->
+        <div class="mt-6 bg-gray-900 rounded-xl border border-gray-800 p-6">
+          <h3 class="text-sm font-semibold text-gray-300 mb-3">📐 Exemple de calcul</h3>
+          <div id="param-preview" class="text-sm text-gray-400 space-y-1"></div>
+        </div>
       </div>
     </div>
 

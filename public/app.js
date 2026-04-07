@@ -1,6 +1,12 @@
 // ─── State ───────────────────────────────────────────────────────────────────
 let ouvrages = [];
 let currentTab = 'bibliotheque';
+let parametres = { taux_horaire: 45, coef_fg: 1.36, marge_mat: 0.30 };
+
+function prixCalcule(o) {
+  return (o.ratio_mo * parametres.taux_horaire * parametres.coef_fg)
+       + (o.cout_mat_unit * (1 + parametres.marge_mat));
+}
 
 // ─── Famille colors ───────────────────────────────────────────────────────────
 const FAMILLE_COLORS = {
@@ -38,6 +44,7 @@ function switchTab(tab) {
   if (tab === 'bibliotheque') loadOuvrages();
   if (tab === 'import') loadImportHistory();
   if (tab === 'stats') loadStats();
+  if (tab === 'parametres') loadParametres();
 }
 
 // ─── Bibliothèque ─────────────────────────────────────────────────────────────
@@ -70,7 +77,7 @@ function renderOuvrages(data) {
   const tbody = document.getElementById('ouvrages-tbody');
 
   if (!data.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Aucun ouvrage trouvé</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Aucun ouvrage trouvé</td></tr>`;
     return;
   }
 
@@ -89,7 +96,8 @@ function renderOuvrages(data) {
       <td class="px-4 py-3 text-center text-gray-300">${escHtml(o.unite || '—')}</td>
       <td class="px-4 py-3 text-right text-gray-300">${fmtNum(o.ratio_mo)}</td>
       <td class="px-4 py-3 text-right text-gray-300">${fmtEur(o.cout_mat_unit)}</td>
-      <td class="px-4 py-3 text-right font-medium text-white">${fmtEur(o.prix_vente_unit)}</td>
+      <td class="px-4 py-3 text-right text-gray-400 line-through text-xs">${fmtEur(o.prix_vente_unit)}</td>
+      <td class="px-4 py-3 text-right font-semibold text-green-400">${fmtEur(prixCalcule(o))}</td>
       <td class="px-4 py-3 text-center">${occBadge}</td>
       <td class="px-4 py-3 text-center" onclick="event.stopPropagation()">
         <div class="flex items-center justify-center gap-2">
@@ -451,5 +459,59 @@ function fmtDate(dt) {
   return new Date(dt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// ─── Paramètres ───────────────────────────────────────────────────────────────
+async function loadParametres() {
+  const res = await fetch('/api/parametres');
+  parametres = await res.json();
+  document.getElementById('param-taux-horaire').value = parametres.taux_horaire;
+  document.getElementById('param-coef-fg').value = parametres.coef_fg;
+  document.getElementById('param-marge-mat').value = parametres.marge_mat;
+  updateParamPreview();
+}
+
+function updateParamPreview() {
+  const th = parseFloat(document.getElementById('param-taux-horaire').value) || 0;
+  const fg = parseFloat(document.getElementById('param-coef-fg').value) || 1;
+  const mm = parseFloat(document.getElementById('param-marge-mat').value) || 0;
+  // Exemple : 2h MO, 50€ matériaux
+  const exMO = 2 * th * fg;
+  const exMat = 50 * (1 + mm);
+  const total = exMO + exMat;
+  document.getElementById('param-preview').innerHTML = `
+    <p>Exemple : <strong>2h MO</strong> + <strong>50€ matériaux</strong></p>
+    <p class="mt-1">→ MO : 2 × ${th}€ × ${fg} = <span class="text-blue-400">${exMO.toFixed(2)}€</span></p>
+    <p>→ Mat : 50€ × (1 + ${mm}) = <span class="text-yellow-400">${exMat.toFixed(2)}€</span></p>
+    <p class="mt-1 font-semibold text-green-400">→ Prix de vente : ${total.toFixed(2)}€ HT</p>
+  `;
+}
+
+['param-taux-horaire', 'param-coef-fg', 'param-marge-mat'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', updateParamPreview);
+});
+
+async function saveParametres() {
+  const taux_horaire = parseFloat(document.getElementById('param-taux-horaire').value);
+  const coef_fg = parseFloat(document.getElementById('param-coef-fg').value);
+  const marge_mat = parseFloat(document.getElementById('param-marge-mat').value);
+
+  const res = await fetch('/api/parametres', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taux_horaire, coef_fg, marge_mat })
+  });
+  parametres = await res.json();
+
+  const msg = document.getElementById('param-success');
+  msg.classList.remove('hidden');
+  setTimeout(() => msg.classList.add('hidden'), 2000);
+
+  // Rafraîchir le tableau si on est sur bibliothèque
+  if (currentTab === 'bibliotheque') loadOuvrages();
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
-loadOuvrages();
+async function init() {
+  await loadParametres();
+  loadOuvrages();
+}
+init();

@@ -370,6 +370,46 @@ app.get('/api/ouvrages/export/csv', (req, res) => {
   res.send('\uFEFF' + csvRows.join('\n'));
 });
 
+// ─── Paramètres ──────────────────────────────────────────────────────────────
+
+app.get('/api/parametres', (req, res) => {
+  const rows = db.prepare('SELECT key, value FROM parametres').all();
+  const result = {};
+  rows.forEach(r => result[r.key] = r.value);
+  res.json(result);
+});
+
+app.put('/api/parametres', (req, res) => {
+  const { taux_horaire, coef_fg, marge_mat } = req.body;
+  const update = db.prepare('INSERT OR REPLACE INTO parametres (key, value) VALUES (?, ?)');
+  const updateAll = db.transaction(() => {
+    if (taux_horaire !== undefined) update.run('taux_horaire', parseFloat(taux_horaire));
+    if (coef_fg !== undefined) update.run('coef_fg', parseFloat(coef_fg));
+    if (marge_mat !== undefined) update.run('marge_mat', parseFloat(marge_mat));
+  });
+  updateAll();
+  const rows = db.prepare('SELECT key, value FROM parametres').all();
+  const result = {};
+  rows.forEach(r => result[r.key] = r.value);
+  res.json(result);
+});
+
+// GET /api/ouvrages/prix-calcule — prix de vente calculé pour tous les ouvrages
+app.get('/api/ouvrages/prix-calcule', (req, res) => {
+  const rows = db.prepare('SELECT key, value FROM parametres').all();
+  const params = {};
+  rows.forEach(r => params[r.key] = r.value);
+
+  const { taux_horaire = 45, coef_fg = 1.36, marge_mat = 0.30 } = params;
+
+  const ouvrages = db.prepare('SELECT id, ratio_mo, cout_mat_unit FROM ouvrages').all();
+  const result = ouvrages.map(o => ({
+    id: o.id,
+    prix_calcule: parseFloat(((o.ratio_mo * taux_horaire * coef_fg) + (o.cout_mat_unit * (1 + marge_mat))).toFixed(2))
+  }));
+  res.json({ parametres: params, ouvrages: result });
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
