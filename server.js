@@ -410,173 +410,182 @@ app.get('/api/ouvrages/prix-calcule', (req, res) => {
   res.json({ parametres: params, ouvrages: result });
 });
 
-// ─── Template Excel devis ─────────────────────────────────────────────────────
-app.get('/api/template/devis', (req, res) => {
-  const paramRows = db.prepare('SELECT key, value FROM parametres').all();
-  const params = {};
-  paramRows.forEach(r => params[r.key] = r.value);
-  const { taux_horaire = 45, coef_fg = 1.36, marge_mat = 0.30 } = params;
+// ─── Template Excel devis (exceljs — supporte les listes déroulantes) ────────
+const ExcelJS = require('exceljs');
 
-  const ouvrages = db.prepare('SELECT * FROM ouvrages ORDER BY famille, designation').all();
-  const nbOuvrages = ouvrages.length;
+app.get('/api/template/devis', async (req, res) => {
+  try {
+    const paramRows = db.prepare('SELECT key, value FROM parametres').all();
+    const params = {};
+    paramRows.forEach(r => params[r.key] = r.value);
+    const { taux_horaire = 45, coef_fg = 1.36, marge_mat = 0.30 } = params;
 
-  const wb = XLSX.utils.book_new();
+    const ouvrages = db.prepare('SELECT * FROM ouvrages ORDER BY famille, designation').all();
+    const nbOuvrages = ouvrages.length;
+    const NB_LIGNES = 40;
+    const FIRST_DATA_ROW = 71;
+    const lastDataRow = FIRST_DATA_ROW + NB_LIGNES - 1;
 
-  // ── Feuille Base (cachée, source RECHERCHEV) ──────────────────────────────
-  // Col A=désignation, B=unité, C=ratio_mo, D=cout_mat_unit, E=prix_vente_calculé
-  const baseHeader = ['Désignation', 'Unité', 'Ratio MO (h/u)', 'Matériaux (€/u)', 'Prix Vente HT (€/u)', 'Famille'];
-  const baseData = [baseHeader, ...ouvrages.map(o => [
-    o.designation,
-    o.unite || '',
-    parseFloat(o.ratio_mo.toFixed(4)),
-    parseFloat(o.cout_mat_unit.toFixed(2)),
-    parseFloat(((o.ratio_mo * taux_horaire * coef_fg) + (o.cout_mat_unit * (1 + marge_mat))).toFixed(2)),
-    o.famille
-  ])];
-  const wsBase = XLSX.utils.aoa_to_sheet(baseData);
-  wsBase['!cols'] = [{ wch: 55 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 20 }];
-  XLSX.utils.book_append_sheet(wb, wsBase, 'Base');
+    const wb = new ExcelJS.Workbook();
 
-  // Plage Base pour VLOOKUP : Base!$A$2:$E$N
-  const baseRange = `Base!$A$2:$E$${nbOuvrages + 1}`;
-  // Plage désignations pour validation : Base!$A$2:$A$N
-  const desigRange = `Base!$A$2:$A$${nbOuvrages + 1}`;
+    // ── Feuille Base ─────────────────────────────────────────────────────────
+    const wsBase = wb.addWorksheet('Base');
+    wsBase.columns = [
+      { header: 'Désignation',       key: 'desig', width: 55 },
+      { header: 'Unité',             key: 'unite', width: 8 },
+      { header: 'Ratio MO (h/u)',    key: 'ratio', width: 14 },
+      { header: 'Matériaux (€/u)',   key: 'mat',   width: 14 },
+      { header: 'Prix Vente HT (€/u)', key: 'pv', width: 18 },
+      { header: 'Famille',           key: 'fam',   width: 20 },
+    ];
+    ouvrages.forEach(o => {
+      wsBase.addRow({
+        desig: o.designation,
+        unite: o.unite || '',
+        ratio: parseFloat(o.ratio_mo.toFixed(4)),
+        mat:   parseFloat(o.cout_mat_unit.toFixed(2)),
+        pv:    parseFloat(((o.ratio_mo * taux_horaire * coef_fg) + (o.cout_mat_unit * (1 + marge_mat))).toFixed(2)),
+        fam:   o.famille,
+      });
+    });
 
-  // ── Feuille Devis ─────────────────────────────────────────────────────────
-  const NB_LIGNES = 40;
-  const FIRST_DATA_ROW = 71; // ligne Excel où commence la première ligne ouvrage
+    const baseRange  = `Base!$A$2:$E$${nbOuvrages + 1}`;
+    const desigRange = `Base!$A$2:$A$${nbOuvrages + 1}`;
 
-  // Helper : cellule Excel
-  const cell = (col, row) => `${col}${row}`;
+    // ── Feuille Devis ─────────────────────────────────────────────────────────
+    const wsDevis = wb.addWorksheet('Devis');
+    wsDevis.columns = [
+      { key: 'A', width: 6 },
+      { key: 'B', width: 55 },
+      { key: 'C', width: 10 },
+      { key: 'D', width: 8 },
+      { key: 'E', width: 16 },
+      { key: 'F', width: 14 },
+      { key: 'G', width: 12 },
+      { key: 'H', width: 12 },
+      { key: 'I', width: 14 },
+    ];
 
-  // Construire le tableau de lignes (AOA)
-  const rows = [];
+    const addRow = (vals) => wsDevis.addRow(vals);
 
-  // -- En-tête entreprise (lignes 1-9)
-  rows.push(['HERES Construction']);
-  rows.push(['12 Rue de la tannerie 77 250 ECUELLES  MORET SUR LOING']);
-  rows.push(['06 86 27 82 27 / tel & fax 01 60 70 22 51   RCS Melun B 439 371 014']);
-  rows.push(['Maçonnerie – Couverture – Béton armé – Carrelage']);
-  rows.push(['SIRET N° 439 371 014 00028']);
-  rows.push(['Certificat QUALIBAT RGE E106948 code 431']);
-  rows.push(['Site internet : heres-construction.fr']);
-  rows.push(['Email : heresconstruction@orange.fr']);
-  rows.push([]); // ligne 9
+    // En-tête entreprise
+    addRow(['HERES Construction']);
+    addRow(['12 Rue de la tannerie 77 250 ECUELLES  MORET SUR LOING']);
+    addRow(['06 86 27 82 27 / tel & fax 01 60 70 22 51   RCS Melun B 439 371 014']);
+    addRow(['Maçonnerie – Couverture – Béton armé – Carrelage']);
+    addRow(['SIRET N° 439 371 014 00028']);
+    addRow(['Certificat QUALIBAT RGE E106948 code 431']);
+    addRow(['Site internet : heres-construction.fr']);
+    addRow(['Email : heresconstruction@orange.fr']);
+    addRow([]);
+    // Bloc client
+    addRow(['Client :', '', '', '[ NOM CLIENT ]']);
+    addRow(['', '', '', '[ ADRESSE ]']);
+    addRow(['', '', '', '[ CODE POSTAL VILLE ]']);
+    addRow(['Ecuelles, le', new Date()]);
+    addRow(['', '', '', 'Tel : [ TEL CLIENT ]']);
+    addRow([]);
+    addRow(['Devis N°', '[ NUMÉRO DEVIS ]']);
+    addRow(['[ TITRE DES TRAVAUX ]']);
+    addRow([]);
+    // Adresse travaux
+    addRow(['Adresse des travaux :']);
+    addRow(['[ ADRESSE DES TRAVAUX ]']);
+    addRow(['Date de la visite préalable :', '', new Date()]);
+    addRow(['Date prévisionnelle de démarrage :']);
+    addRow([]);
+    // Texte commercial
+    addRow(['DEVIS']);
+    addRow([]);
+    addRow(['   Veuillez trouver ci-joint notre meilleure offre pour les travaux décrits ci-joints.']);
+    addRow(['Je me tiens à votre disposition au 06 86 27 82 27 pour tout complément d\'information.']);
+    addRow([]);
+    addRow(['  En souhaitant que notre offre vous convienne, je vous prie d\'agréer, Madame, Monsieur,']);
+    addRow(['l\'expression de mes sentiments distingués.']);
+    addRow(['', '', '', 'Rémi SCHLEGEL']);
+    // Conditions
+    for (let i = 0; i < 10; i++) addRow([]);
+    addRow(['  Notre offre est établie sur la base économique actuelle et révisable selon l\'indice de la construction.']);
+    addRow(['Terme de paiement : 20% à la commande, 80% à l\'avancement physique sur situations mensuelles']);
+    addRow(['La TVA est ajustable selon le taux en vigueur au moment de la facturation']);
+    addRow(['Conditions de paiement : 20 jours à réception des factures']);
+    addRow(['Durée de validité de notre offre : 2 mois']);
+    for (let i = 0; i < 5; i++) addRow([]);
+    addRow(['  En cas d\'accord, veuillez nous retourner ce présent devis avec la mention "BON POUR ACCORD", daté et signé.', '', '', '[ NOM CLIENT ]']);
+    addRow([]);
+    addRow(['date :']);
+    for (let i = 0; i < 6; i++) addRow([]);
+    addRow(['Assurance professionnelle : EIRL VITRY ASSURANCES - MMA 30 rue Casimir Perrier BP31 77302 FONTAINEBLEAU']);
+    addRow([]);
+    // En-têtes tableau
+    addRow(['N° Étude', '[ NUMÉRO DEVIS ]']);
+    addRow(['[ NOM CLIENT ]']);
+    addRow([]);
+    addRow([]);
+    addRow(['', '', '', '', 'EUROS', '', '', 'Heures', 'Achat mat. HT']);
+    addRow(['Ref', 'DESCRIPTIF', 'Quantité', 'Unité', 'Prix/unit HT €', 'Prix HT €', 'Sous-total', 'H', '€']);
+    addRow(['', '', '', '', '', '', '€ HT', '', '']);
+    addRow([]);
 
-  // -- Bloc client (lignes 10-17)
-  rows.push(['Client :', '', '', '[ NOM CLIENT ]']); // 10
-  rows.push(['', '', '', '[ ADRESSE ]']); // 11
-  rows.push(['', '', '', '[ CODE POSTAL VILLE ]']); // 12
-  rows.push(['Ecuelles, le', new Date()]); // 13
-  rows.push(['', '', '', 'Tel : [ TEL CLIENT ]']); // 14
-  rows.push([]); // 15
-  rows.push(['Devis N°', '[ NUMÉRO DEVIS ]']); // 16
-  rows.push(['[ TITRE DES TRAVAUX ]']); // 17
-  rows.push([]); // 18
+    // Vérification que FIRST_DATA_ROW est correct
+    // (wsDevis.rowCount devrait être 70 ici, prochaine ligne = 71)
 
-  // -- Adresse travaux (lignes 19-21)
-  rows.push(['Adresse des travaux :']); // 19
-  rows.push(['[ ADRESSE DES TRAVAUX ]']); // 20
-  rows.push(['Date de la visite préalable :', '', new Date()]); // 21
-  rows.push(['Date prévisionnelle de démarrage :']); // 22
-  rows.push([]); // 23
+    // Lignes ouvrages avec formules VLOOKUP
+    for (let i = 0; i < NB_LIGNES; i++) {
+      const r = FIRST_DATA_ROW + i;
+      const row = wsDevis.addRow([
+        `L${i + 1}`, // A : Ref
+        '',           // B : Désignation — liste déroulante ajoutée après
+        '',           // C : Quantité
+      ]);
+      // Formules via valeur de cellule directe
+      row.getCell('D').value = { formula: `IF(B${r}="","",IFERROR(VLOOKUP(B${r},${baseRange},2,0),""))` };
+      row.getCell('E').value = { formula: `IF(B${r}="","",IFERROR(VLOOKUP(B${r},${baseRange},5,0),""))` };
+      row.getCell('F').value = { formula: `IF(OR(C${r}="",E${r}=""),"",ROUND(C${r}*E${r},2))` };
+      row.getCell('G').value = ''; // sous-total lot : à remplir manuellement
+      row.getCell('H').value = { formula: `IF(OR(C${r}="",B${r}=""),"",IFERROR(ROUND(C${r}*VLOOKUP(B${r},${baseRange},3,0),2),""))` };
+      row.getCell('I').value = { formula: `IF(OR(C${r}="",B${r}=""),"",IFERROR(ROUND(C${r}*VLOOKUP(B${r},${baseRange},4,0),2),""))` };
+    }
 
-  // -- Texte commercial (lignes 24-30)
-  rows.push(['DEVIS']); // 24
-  rows.push([]); // 25
-  rows.push(['   Veuillez trouver ci-joint notre meilleure offre pour les travaux décrits ci-joints.']); // 26
-  rows.push(['Je me tiens à votre disposition au 06 86 27 82 27 pour tout complément d\'information.']); // 27
-  rows.push([]); // 28
-  rows.push(['  En souhaitant que notre offre vous convienne, je vous prie d\'agréer, Madame, Monsieur,']); // 29
-  rows.push(['l\'expression de mes sentiments distingués.']); // 30
-  rows.push(['', '', '', 'Rémi SCHLEGEL']); // 31
+    // Totaux
+    const rTotal = lastDataRow + 1;
+    const rTva   = rTotal + 1;
+    const rTtc   = rTva + 1;
 
-  // -- Conditions (lignes 32-45)
-  for (let i = 0; i < 10; i++) rows.push([]); // 32-41
-  rows.push(['  Notre offre est établie sur la base économique actuelle et révisable selon l\'indice de la construction.']); // 42
-  rows.push(['Terme de paiement : 20% à la commande, 80% à l\'avancement physique sur situations mensuelles']); // 43
-  rows.push(['La TVA est ajustable selon le taux en vigueur au moment de la facturation']); // 44
-  rows.push(['Conditions de paiement : 20 jours à réception des factures']); // 45
-  rows.push(['Durée de validité de notre offre : 2 mois']); // 46
-  for (let i = 0; i < 5; i++) rows.push([]); // 47-51
-  rows.push(['  En cas d\'accord, veuillez nous retourner ce présent devis avec la mention "BON POUR ACCORD", daté et signé.', '', '', '[ NOM CLIENT ]']); // 52
-  rows.push([]); // 53
-  rows.push(['date :']); // 54
-  for (let i = 0; i < 6; i++) rows.push([]); // 55-60
-  rows.push(['Assurance professionnelle : EIRL VITRY ASSURANCES - MMA 30 rue Casimir Perrier BP31 77302 FONTAINEBLEAU']); // 61
-  rows.push([]); // 62
+    const rowTotal = wsDevis.addRow(['', 'TOTAL € HT']);
+    rowTotal.getCell('F').value = { formula: `SUM(F${FIRST_DATA_ROW}:F${lastDataRow})` };
+    rowTotal.getCell('H').value = { formula: `SUM(H${FIRST_DATA_ROW}:H${lastDataRow})` };
+    rowTotal.getCell('I').value = { formula: `SUM(I${FIRST_DATA_ROW}:I${lastDataRow})` };
 
-  // -- En-têtes tableau (lignes 63-70)
-  rows.push(['N° Étude', '[ NUMÉRO DEVIS ]']); // 63
-  rows.push(['[ NOM CLIENT ]']); // 64
-  rows.push([]); // 65
-  rows.push([]); // 66
-  rows.push(['', '', '', '', 'EUROS', '', '', 'Heures', 'Achat mat. HT']); // 67
-  rows.push(['Ref', 'DESCRIPTIF', 'Quantité', 'Unité', 'Prix/unit HT €', 'Prix HT €', 'Sous-total', 'H', '€']); // 68
-  rows.push(['', '', '', '', '', '', '€ HT', '', '']); // 69
-  rows.push([]); // 70  ← séparateur avant les ouvrages
+    const rowTva = wsDevis.addRow(['', 'TVA 10%', '', '', 0.10]);
+    rowTva.getCell('F').value = { formula: `ROUND(F${rTotal}*E${rTva},2)` };
 
-  // -- Lignes ouvrages (lignes 71 → 71+NB_LIGNES-1)
-  for (let i = 0; i < NB_LIGNES; i++) {
-    const r = FIRST_DATA_ROW + i;
-    rows.push([
-      `L${i + 1}`,                                                                           // A : Ref
-      '',                                                                                     // B : Désignation (liste déroulante)
-      '',                                                                                     // C : Quantité (saisie)
-      { f: `IF(B${r}="","",IFERROR(VLOOKUP(B${r},${baseRange},2,0),""))` },                 // D : Unité auto
-      { f: `IF(B${r}="","",IFERROR(VLOOKUP(B${r},${baseRange},5,0),""))` },                 // E : Prix unit HT calculé
-      { f: `IF(OR(C${r}="",E${r}=""),"",ROUND(C${r}*E${r},2))` },                          // F : Prix HT = Qté × PU
-      '',                                                                                     // G : Sous-total (rempli manuellement par lot)
-      { f: `IF(OR(C${r}="",B${r}=""),"",IFERROR(ROUND(C${r}*VLOOKUP(B${r},${baseRange},3,0),2),""))` }, // H : Total MO heures
-      { f: `IF(OR(C${r}="",B${r}=""),"",IFERROR(ROUND(C${r}*VLOOKUP(B${r},${baseRange},4,0),2),""))` }, // I : Total achat mat.
-    ]);
+    const rowTtc = wsDevis.addRow(['', 'TOTAL € TTC']);
+    rowTtc.getCell('F').value = { formula: `F${rTotal}+F${rTva}` };
+
+    // ── Validation liste déroulante colonne B (lignes ouvrages) ──────────────
+    for (let i = 0; i < NB_LIGNES; i++) {
+      const r = FIRST_DATA_ROW + i;
+      wsDevis.getCell(`B${r}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [desigRange],
+        showErrorMessage: false,
+        showInputMessage: false,
+      };
+    }
+
+    // ── Envoi ─────────────────────────────────────────────────────────────────
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="template-devis-${date}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error('[template/devis]', err);
+    res.status(500).json({ error: err.message });
   }
-
-  // -- Totaux
-  const lastDataRow = FIRST_DATA_ROW + NB_LIGNES - 1;
-  const totalRow = lastDataRow + 1;
-  const tvaRow = totalRow + 1;
-  const ttcRow = tvaRow + 1;
-
-  rows.push(['', 'TOTAL € HT', '', '', '', { f: `SUM(F${FIRST_DATA_ROW}:F${lastDataRow})` }, '', { f: `SUM(H${FIRST_DATA_ROW}:H${lastDataRow})` }, { f: `SUM(I${FIRST_DATA_ROW}:I${lastDataRow})` }]);
-  rows.push(['', 'TVA 10%', '', '', 0.10, { f: `ROUND(F${totalRow}*E${tvaRow},2)` }]);
-  rows.push(['', 'TOTAL € TTC', '', '', '', { f: `F${totalRow}+F${tvaRow}` }]);
-
-  const wsDevis = XLSX.utils.aoa_to_sheet(rows);
-
-  // Largeurs colonnes
-  wsDevis['!cols'] = [
-    { wch: 6 },  // A Ref
-    { wch: 55 }, // B Désignation
-    { wch: 10 }, // C Quantité
-    { wch: 8 },  // D Unité
-    { wch: 16 }, // E Prix unit HT
-    { wch: 14 }, // F Prix HT
-    { wch: 12 }, // G Sous-total
-    { wch: 12 }, // H Heures MO
-    { wch: 14 }, // I Achat mat
-  ];
-
-  // ── Validation (liste déroulante) sur colonne B pour les lignes ouvrages ──
-  // Utilise la plage Base!$A$2:$A$N
-  if (!wsDevis['!dataValidation']) wsDevis['!dataValidation'] = [];
-  wsDevis['!dataValidation'].push({
-    type: 'list',
-    allowBlank: true,
-    showDropDown: false,
-    sqref: `B${FIRST_DATA_ROW}:B${lastDataRow}`,
-    formula1: desigRange,
-  });
-
-  XLSX.utils.book_append_sheet(wb, wsDevis, 'Devis');
-
-  // ── Génération fichier ────────────────────────────────────────────────────
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-  const date = new Date().toISOString().slice(0, 10);
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="template-devis-${date}.xlsx"`);
-  res.send(buf);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
