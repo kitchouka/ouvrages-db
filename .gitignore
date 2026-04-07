@@ -1,0 +1,7 @@
+node_modules/
+ouvrages.db
+ouvrages.db-shm
+ouvrages.db-wal
+uploads/
+*.log
+.env

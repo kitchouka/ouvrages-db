@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🏗️ OuvragesDB</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            gray: {
+              950: '#0a0a0f'
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
+
+  <!-- Header -->
+  <header class="bg-gray-900 border-b border-gray-800 sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-2xl">🏗️</span>
+        <div>
+          <h1 class="text-xl font-bold text-white">OuvragesDB</h1>
+          <p class="text-xs text-gray-400">Base d'ouvrages BTP</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="/api/ouvrages/export/csv" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-gray-300 transition-colors">
+          📤 Exporter CSV
+        </a>
+        <button onclick="openAddModal()" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium transition-colors">
+          ➕ Nouvel ouvrage
+        </button>
+        <button onclick="openImportModal()" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-medium transition-colors">
+          📥 Importer un devis
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex gap-1 border-b border-gray-800 mb-6">
+      <button class="tab-btn active" data-tab="bibliotheque">📚 Bibliothèque</button>
+      <button class="tab-btn" data-tab="import">📥 Import</button>
+      <button class="tab-btn" data-tab="stats">📊 Stats</button>
+    </div>
+
+    <!-- Tab: Bibliothèque -->
+    <div id="tab-bibliotheque" class="tab-content">
+      <!-- Filtres -->
+      <div class="flex flex-wrap gap-3 mb-4">
+        <div class="flex-1 min-w-[200px]">
+          <input type="text" id="search-input" placeholder="🔍 Rechercher une désignation..." 
+            class="w-full px-4 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500" />
+        </div>
+        <select id="famille-filter" class="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm focus:outline-none focus:border-blue-500">
+          <option value="all">Toutes familles</option>
+          <option>Maçonnerie</option>
+          <option>Terrassement</option>
+          <option>Plomberie</option>
+          <option>Charpente/Couverture</option>
+          <option>Menuiserie</option>
+          <option>Électricité</option>
+          <option>Isolation</option>
+          <option>Carrelage</option>
+          <option>Peinture</option>
+          <option>Divers</option>
+        </select>
+        <select id="sort-select" class="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm focus:outline-none focus:border-blue-500">
+          <option value="designation">Trier : Désignation</option>
+          <option value="ratio_mo">Trier : Ratio MO</option>
+          <option value="prix_vente_unit">Trier : Prix vente</option>
+          <option value="nb_occurrences">Trier : Occurrences</option>
+        </select>
+      </div>
+
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-sm text-gray-400"><span id="ouvrage-count">0</span> ouvrage(s)</p>
+      </div>
+
+      <!-- Table -->
+      <div class="overflow-x-auto rounded-xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-900 text-gray-400 text-xs uppercase">
+            <tr>
+              <th class="px-4 py-3 text-left">Désignation</th>
+              <th class="px-4 py-3 text-left">Famille</th>
+              <th class="px-4 py-3 text-center">Unité</th>
+              <th class="px-4 py-3 text-right">MO (h/u)</th>
+              <th class="px-4 py-3 text-right">Mat. (€/u)</th>
+              <th class="px-4 py-3 text-right">PV (€/u)</th>
+              <th class="px-4 py-3 text-center">Occur.</th>
+              <th class="px-4 py-3 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ouvrages-tbody" class="divide-y divide-gray-800">
+            <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Chargement…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Import -->
+    <div id="tab-import" class="tab-content hidden">
+      <!-- Drop zone -->
+      <div id="drop-zone" class="border-2 border-dashed border-gray-700 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-colors mb-6">
+        <div class="text-5xl mb-4">📂</div>
+        <p class="text-gray-300 font-medium mb-2">Glissez votre fichier Excel ici</p>
+        <p class="text-gray-500 text-sm mb-4">Format .xlsx — Feuille "Devis" avec colonnes ref/désignation/qté…</p>
+        <label class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm cursor-pointer transition-colors">
+          📁 Choisir un fichier
+          <input type="file" id="file-input" accept=".xlsx" class="hidden" />
+        </label>
+      </div>
+
+      <!-- Import result -->
+      <div id="import-result" class="hidden mb-6">
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-4">
+          <h3 class="text-base font-semibold text-white mb-3">✅ Import terminé</h3>
+          <div class="flex gap-6">
+            <div class="text-center">
+              <p class="text-2xl font-bold text-blue-400" id="res-total">0</p>
+              <p class="text-xs text-gray-400">Ouvrages traités</p>
+            </div>
+            <div class="text-center">
+              <p class="text-2xl font-bold text-green-400" id="res-nouveaux">0</p>
+              <p class="text-xs text-gray-400">Nouveaux</p>
+            </div>
+            <div class="text-center">
+              <p class="text-2xl font-bold text-yellow-400" id="res-fusionnes">0</p>
+              <p class="text-xs text-gray-400">Fusionnés</p>
+            </div>
+          </div>
+        </div>
+
+        <h4 class="text-sm font-medium text-gray-300 mb-2">Aperçu des ouvrages importés</h4>
+        <div class="overflow-x-auto rounded-xl border border-gray-800">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-900 text-gray-400 text-xs uppercase">
+              <tr>
+                <th class="px-4 py-3 text-left">Désignation</th>
+                <th class="px-4 py-3 text-left">Famille</th>
+                <th class="px-4 py-3 text-right">MO (h/u)</th>
+                <th class="px-4 py-3 text-right">Mat. (€/u)</th>
+                <th class="px-4 py-3 text-right">PV (€/u)</th>
+                <th class="px-4 py-3 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="import-preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Import history -->
+      <h3 class="text-base font-semibold text-gray-200 mb-3">📋 Historique des imports</h3>
+      <div class="overflow-x-auto rounded-xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-900 text-gray-400 text-xs uppercase">
+            <tr>
+              <th class="px-4 py-3 text-left">Date</th>
+              <th class="px-4 py-3 text-left">Fichier</th>
+              <th class="px-4 py-3 text-center">Total</th>
+              <th class="px-4 py-3 text-center">Nouveaux</th>
+              <th class="px-4 py-3 text-center">Fusionnés</th>
+            </tr>
+          </thead>
+          <tbody id="imports-history-tbody">
+            <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">Aucun import</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Stats -->
+    <div id="tab-stats" class="tab-content hidden">
+      <!-- Cards -->
+      <div class="grid grid-cols-2 gap-4 mb-8">
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-6 text-center">
+          <p class="text-4xl font-bold text-blue-400 mb-1" id="stat-total">—</p>
+          <p class="text-sm text-gray-400">Ouvrages en base</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-6 text-center">
+          <p class="text-4xl font-bold text-purple-400 mb-1" id="stat-familles">—</p>
+          <p class="text-sm text-gray-400">Familles distinctes</p>
+        </div>
+      </div>
+
+      <!-- Bar chart -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-8">
+        <h3 class="text-base font-semibold text-gray-200 mb-4">Répartition par famille</h3>
+        <div id="bar-chart" class="space-y-3"></div>
+      </div>
+
+      <!-- Top 10 -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <h3 class="text-base font-semibold text-gray-200 mb-4">🏆 Top 10 ouvrages (occurrences)</h3>
+        <div id="top10-list" class="space-y-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drawer latéral -->
+  <div id="drawer-overlay" class="fixed inset-0 bg-black/60 z-50 hidden" onclick="closeDrawer()"></div>
+  <div id="drawer" class="fixed top-0 right-0 h-full w-full max-w-md bg-gray-900 border-l border-gray-800 z-50 transform translate-x-full transition-transform duration-300 overflow-y-auto">
+    <div class="p-6">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-semibold text-white">Détail ouvrage</h2>
+        <button onclick="closeDrawer()" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+      <div id="drawer-content"></div>
+    </div>
+  </div>
+
+  <!-- Modal Ajout Manuel -->
+  <div id="modal-add" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-lg">
+      <div class="p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-lg font-semibold text-white" id="modal-title">➕ Nouvel ouvrage</h2>
+          <button onclick="closeAddModal()" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+        <form id="add-form" class="space-y-4">
+          <input type="hidden" id="edit-id" value="" />
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Désignation *</label>
+            <input type="text" id="f-designation" required
+              class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Famille</label>
+              <select id="f-famille" class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500">
+                <option>Maçonnerie</option>
+                <option>Terrassement</option>
+                <option>Plomberie</option>
+                <option>Charpente/Couverture</option>
+                <option>Menuiserie</option>
+                <option>Électricité</option>
+                <option>Isolation</option>
+                <option>Carrelage</option>
+                <option>Peinture</option>
+                <option selected>Divers</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Unité</label>
+              <input type="text" id="f-unite" placeholder="m², ml, u…"
+                class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Ratio MO (h/u)</label>
+              <input type="number" id="f-ratio-mo" step="0.01" min="0" value="0"
+                class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Mat. (€/u)</label>
+              <input type="number" id="f-cout-mat" step="0.01" min="0" value="0"
+                class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">PV (€/u)</label>
+              <input type="number" id="f-prix-vente" step="0.01" min="0" value="0"
+                class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Notes</label>
+            <textarea id="f-notes" rows="3" placeholder="Notes, remarques…"
+              class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
+          </div>
+          <div class="flex gap-3 pt-2">
+            <button type="submit" class="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium text-sm transition-colors">
+              Enregistrer
+            </button>
+            <button type="button" onclick="closeAddModal()" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm transition-colors">
+              Annuler
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Import -->
+  <div id="modal-import" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-md">
+      <div class="p-6 text-center">
+        <div class="text-4xl mb-3" id="import-modal-icon">⏳</div>
+        <h2 class="text-lg font-semibold text-white mb-2" id="import-modal-title">Import en cours…</h2>
+        <p class="text-sm text-gray-400" id="import-modal-msg">Veuillez patienter</p>
+        <div id="import-modal-close" class="hidden mt-4">
+          <button onclick="closeImportModal()" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
