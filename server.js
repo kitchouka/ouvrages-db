@@ -410,6 +410,113 @@ app.get('/api/ouvrages/prix-calcule', (req, res) => {
   res.json({ parametres: params, ouvrages: result });
 });
 
+// ─── Template Excel devis ─────────────────────────────────────────────────────
+app.get('/api/template/devis', (req, res) => {
+  const rows = db.prepare('SELECT key, value FROM parametres').all();
+  const params = {};
+  rows.forEach(r => params[r.key] = r.value);
+  const { taux_horaire = 45, coef_fg = 1.36, marge_mat = 0.30 } = params;
+
+  const ouvrages = db.prepare('SELECT * FROM ouvrages ORDER BY famille, designation').all();
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Feuille 1 : Base ──────────────────────────────────────────────────────
+  const baseHeader = ['Désignation', 'Famille', 'Unité', 'Ratio MO (h/u)', 'Matériaux (€/u)', 'Prix Vente Calculé (€/u)'];
+  const baseData = [baseHeader, ...ouvrages.map(o => [
+    o.designation,
+    o.famille,
+    o.unite || '',
+    parseFloat(o.ratio_mo.toFixed(4)),
+    parseFloat(o.cout_mat_unit.toFixed(2)),
+    parseFloat(((o.ratio_mo * taux_horaire * coef_fg) + (o.cout_mat_unit * (1 + marge_mat))).toFixed(2))
+  ])];
+
+  const wsBase = XLSX.utils.aoa_to_sheet(baseData);
+
+  // Largeurs colonnes Base
+  wsBase['!cols'] = [{ wch: 50 }, { wch: 20 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 20 }];
+
+  // Définir une plage nommée pour le RECHERCHEV (Base!$A$2:$F$XXXX)
+  const nbOuvrages = ouvrages.length;
+  const baseRange = `Base!$A$2:$F$${nbOuvrages + 1}`;
+
+  XLSX.utils.book_append_sheet(wb, wsBase, 'Base');
+
+  // ── Feuille 2 : Devis ────────────────────────────────────────────────────
+  const NB_LIGNES = 50; // lignes de saisie
+
+  // En-tête devis
+  const devisHeader = [
+    'Désignation', 'Famille', 'Unité', 'Quantité',
+    'PU HT (€)', 'Total HT (€)', 'Ratio MO (h/u)', 'Total MO (h)', 'Notes'
+  ];
+
+  // Ligne d'info paramètres (ligne 1)
+  const infoRow = [`Paramètres : ${taux_horaire}€/h | FG ×${coef_fg} | Marge mat. ${Math.round(marge_mat * 100)}%`, '', '', '', '', '', '', '', ''];
+
+  const devisRows = [infoRow, devisHeader];
+
+  // Lignes de saisie avec RECHERCHEV
+  // Les lignes de données commencent à la ligne 3 (index 2, excel ligne 3)
+  for (let i = 0; i < NB_LIGNES; i++) {
+    const excelRow = i + 3; // ligne Excel (1-indexé), données commencent à ligne 3
+    // Colonne A = saisie désignation
+    // Colonne B = RECHERCHEV désignation → famille (col 2 de Base)
+    // Colonne C = RECHERCHEV désignation → unité (col 3)
+    // Colonne D = saisie quantité
+    // Colonne E = RECHERCHEV désignation → prix vente calculé (col 6)
+    // Colonne F = D * E
+    // Colonne G = RECHERCHEV désignation → ratio MO (col 4)
+    // Colonne H = D * G
+    // Colonne I = notes libres
+    devisRows.push([
+      '',  // A : désignation (saisie libre)
+      { f: `IF(A${excelRow}="","",IFERROR(VLOOKUP(A${excelRow},${baseRange},2,0),"?"))` }, // B : famille
+      { f: `IF(A${excelRow}="","",IFERROR(VLOOKUP(A${excelRow},${baseRange},3,0),"?"))` }, // C : unité
+      '',  // D : quantité (saisie)
+      { f: `IF(A${excelRow}="","",IFERROR(VLOOKUP(A${excelRow},${baseRange},6,0),""))` },  // E : PU HT calculé
+      { f: `IF(OR(D${excelRow}="",E${excelRow}=""),"",D${excelRow}*E${excelRow})` },       // F : total HT
+      { f: `IF(A${excelRow}="","",IFERROR(VLOOKUP(A${excelRow},${baseRange},4,0),""))` },  // G : ratio MO
+      { f: `IF(OR(D${excelRow}="",G${excelRow}=""),"",D${excelRow}*G${excelRow})` },       // H : total MO
+      '',  // I : notes
+    ]);
+  }
+
+  // Ligne TOTAL
+  const totalRow = excelRowTotal => [
+    'TOTAL HT', '', '', '', '',
+    { f: `SUM(F3:F${excelRowTotal})` },
+    '', { f: `SUM(H3:H${excelRowTotal})` }, ''
+  ];
+  devisRows.push(totalRow(NB_LIGNES + 2));
+
+  const wsDevis = XLSX.utils.aoa_to_sheet(devisRows);
+
+  // Largeurs colonnes Devis
+  wsDevis['!cols'] = [
+    { wch: 50 }, // A désignation
+    { wch: 20 }, // B famille
+    { wch: 8 },  // C unité
+    { wch: 10 }, // D quantité
+    { wch: 14 }, // E PU HT
+    { wch: 14 }, // F total HT
+    { wch: 14 }, // G ratio MO
+    { wch: 12 }, // H total MO
+    { wch: 25 }, // I notes
+  ];
+
+  XLSX.utils.book_append_sheet(wb, wsDevis, 'Devis');
+
+  // ── Génération ────────────────────────────────────────────────────────────
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="template-devis-${date}.xlsx"`);
+  res.send(buf);
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {

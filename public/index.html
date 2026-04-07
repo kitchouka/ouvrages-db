@@ -40,9 +40,15 @@
         <button onclick="openAddModal()" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium transition-colors">
           ➕ Nouvel ouvrage
         </button>
-        <button onclick="openImportModal()" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-medium transition-colors">
-          📥 Importer un devis
-        </button>
+        <div class="flex gap-2">
+          <a href="/api/template/devis" download
+            class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 text-sm font-medium transition-colors text-white">
+            📄 Template Excel devis
+          </a>
+          <button onclick="openImportModal()" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-medium transition-colors">
+            📥 Importer un devis
+          </button>
+        </div>
       </div>
     </div>
   </header>
